@@ -1,4 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { db } from './firebase';
+import { 
+  collection, 
+  addDoc, 
+  getDocs, 
+  deleteDoc, 
+  doc, 
+  onSnapshot,
+  query,
+  orderBy 
+} from 'firebase/firestore';
 
 export default function SimpleHouseholdLedger() {
   const [budget] = useState(500000); // 초기 예산 50만원
@@ -6,6 +17,25 @@ export default function SimpleHouseholdLedger() {
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseDescription, setExpenseDescription] = useState("");
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0]);
+  const [loading, setLoading] = useState(true);
+
+  // Firebase에서 실시간으로 데이터 가져오기
+  useEffect(() => {
+    const q = query(collection(db, 'expenses'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const expensesData = [];
+      querySnapshot.forEach((doc) => {
+        expensesData.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+      setExpenses(expensesData);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   // 총 지출 계산
   const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0);
@@ -13,8 +43,8 @@ export default function SimpleHouseholdLedger() {
   // 잔액 계산
   const remainingBudget = budget - totalExpenses;
 
-  // 지출 추가
-  const addExpense = () => {
+  // Firebase에 지출 추가
+  const addExpense = async () => {
     const amount = parseFloat(expenseAmount);
     
     if (!amount || amount <= 0) {
@@ -27,31 +57,47 @@ export default function SimpleHouseholdLedger() {
       return;
     }
 
-    const newExpense = {
-      id: Date.now(),
-      amount: amount,
-      description: expenseDescription || "지출",
-      date: expenseDate
-    };
+    try {
+      await addDoc(collection(db, 'expenses'), {
+        amount: amount,
+        description: expenseDescription || "지출",
+        date: expenseDate,
+        createdAt: new Date()
+      });
 
-    setExpenses([...expenses, newExpense]);
-    setExpenseAmount("");
-    setExpenseDescription("");
+      setExpenseAmount("");
+      setExpenseDescription("");
+    } catch (error) {
+      console.error("Error adding expense: ", error);
+      alert("저장 중 오류가 발생했습니다.");
+    }
   };
 
-  // 지출 삭제
-  const deleteExpense = (id) => {
-    setExpenses(expenses.filter(expense => expense.id !== id));
+  // Firebase에서 지출 삭제
+  const deleteExpense = async (id) => {
+    try {
+      await deleteDoc(doc(db, 'expenses', id));
+    } catch (error) {
+      console.error("Error deleting expense: ", error);
+      alert("삭제 중 오류가 발생했습니다.");
+    }
   };
 
   // 전체 리셋
-  const resetAll = () => {
+  const resetAll = async () => {
     if (window.confirm("모든 지출 내역을 삭제하고 처음부터 시작하시겠습니까?")) {
-      setExpenses([]);
-      localStorage.removeItem('household-expenses'); // LocalStorage도 삭제
-      setExpenseAmount("");
-      setExpenseDescription("");
-      setExpenseDate(new Date().toISOString().split('T')[0]);
+      try {
+        const querySnapshot = await getDocs(collection(db, 'expenses'));
+        const deletePromises = querySnapshot.docs.map(doc => deleteDoc(doc.ref));
+        await Promise.all(deletePromises);
+        
+        setExpenseAmount("");
+        setExpenseDescription("");
+        setExpenseDate(new Date().toISOString().split('T')[0]);
+      } catch (error) {
+        console.error("Error resetting expenses: ", error);
+        alert("리셋 중 오류가 발생했습니다.");
+      }
     }
   };
 
@@ -66,10 +112,19 @@ export default function SimpleHouseholdLedger() {
     return `${date.getMonth() + 1}/${date.getDate()}`;
   };
 
+  if (loading) {
+    return (
+      <div className="max-w-md mx-auto mt-8 p-6 bg-white rounded-lg shadow-lg">
+        <div className="text-center text-gray-500">데이터를 불러오는 중...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-md mx-auto mt-8 p-6 bg-white rounded-lg shadow-lg">
       <h1 className="text-2xl font-bold text-center text-gray-800 mb-6">
         💰 간단한 가계부
+        <div className="text-sm font-normal text-blue-600 mt-1">☁️ 클라우드 동기화</div>
       </h1>
 
       {/* 예산 및 잔액 표시 */}
