@@ -48,6 +48,7 @@ export default function SimpleHouseholdLedger() {
   const resetAll = () => {
     if (window.confirm("모든 지출 내역을 삭제하고 처음부터 시작하시겠습니까?")) {
       setExpenses([]);
+      localStorage.removeItem('household-expenses'); // LocalStorage도 삭제
       setExpenseAmount("");
       setExpenseDescription("");
       setExpenseDate(new Date().toISOString().split('T')[0]);
